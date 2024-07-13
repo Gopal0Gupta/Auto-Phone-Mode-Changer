@@ -81,15 +81,16 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TopScreen() {
-    Surface(modifier = Modifier
-        .fillMaxWidth()
-        .heightIn(min = 54.dp)
-        .border(
-            width = 3.dp,
-            color = colorResource(id = R.color.black),
-            shape = RoundedCornerShape(0.dp)
-        )
+fun TopScreen(onAddClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 54.dp)
+            .border(
+                width = 3.dp,
+                color = colorResource(id = R.color.black),
+                shape = RoundedCornerShape(0.dp)
+            )
     ) {
         Surface(color = colorResource(id = R.color.Light_Blue)) {
             Row(
@@ -113,9 +114,7 @@ fun TopScreen() {
                             color = colorResource(id = R.color.black),
                             shape = RoundedCornerShape(0.dp)
                         ),
-                    onClick = {
-                        /*TODO*/
-                    },
+                    onClick = onAddClick,
                     shape = RoundedCornerShape(0.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colorResource(id = R.color.Light_Green)
@@ -133,67 +132,63 @@ fun TopScreen() {
     }
 }
 
-@Composable
-fun MapScreen() {
-    var userLocation by remember { mutableStateOf<LatLng?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
 
-    if (userLocation == null) {
-        LaunchedEffect(Unit) {
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-            try {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    location?.let {
-                        userLocation = LatLng(it.latitude, it.longitude)
-                    }
-                }
-            } catch (e: SecurityException) {
-                errorMessage = "An unexpected error occurred: ${e.message}"
-            }
+@Composable
+fun MapScreen(
+    userLocation: LatLng?,
+    onLocationSelected: (LatLng) -> Unit
+) {
+    var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
+    val cameraPositionState = rememberCameraPositionState()
+
+    LaunchedEffect(userLocation) {
+        userLocation?.let {
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(it, 15f)
         }
     }
 
-    userLocation?.let { location ->
-        val cameraPositionState = rememberCameraPositionState {
-            position = CameraPosition.fromLatLngZoom(location, 15f)
-        }
-        Surface(color = colorResource(id = R.color.Light_Purple)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(410.dp)
-                    .padding(6.dp)
+    Surface(color = colorResource(id = R.color.Light_Purple)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(410.dp)
+                .padding(6.dp)
+        ) {
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                onMapClick = { latLng ->
+                    selectedLocation = latLng
+                    onLocationSelected(latLng)
+                }
             ) {
-                GoogleMap(
-                    modifier = Modifier.fillMaxSize(),
-                    cameraPositionState = cameraPositionState
-                ) {
+                userLocation?.let { location ->
                     Marker(
                         state = MarkerState(position = location),
                         title = "Your Location"
                     )
                 }
+                selectedLocation?.let { location ->
+                    Marker(
+                        state = MarkerState(position = location),
+                        title = "Selected Location"
+                    )
+                }
             }
         }
-    } ?: run {
-        Text(
-            "Fetching location...",
-            fontSize = 16.sp,
-            color = colorResource(id = R.color.red)
-        )
     }
 }
 
 @Composable
-fun BottomScreen() {
+fun BottomScreen(locationList: List<Location>) {
     Surface(color = colorResource(id = R.color.Light_Blue)) {
         Column(
             modifier = Modifier
                 .border(
                     width = 3.dp,
-                    color = colorResource(id = R.color.black))
-        ){
+                    color = colorResource(id = R.color.black)
+                )
+        ) {
             Text(
                 text = "Locations",
                 fontSize = 24.sp,
@@ -206,7 +201,7 @@ fun BottomScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
             )
-            DemoLocations()
+            LocationList(locations = locationList)
         }
     }
 }
@@ -251,37 +246,42 @@ fun LocationList(locations: List<Location>) {
     }
 }
 
-@Composable
-fun DemoLocations() {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        val locations = listOf(
-            Location("Location 1"),
-            Location("Location 2"),
-            Location("Location 3"),
-            Location("Location 4"),
-            Location("Location 5"),
-            Location("Location 6"),
-        )
-        LocationList(locations = locations)
-    }
-}
-
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun HomeScreen() {
-    Column {
-        TopScreen()
-        val fineLocationPermissionState = rememberPermissionState(permission = Manifest.permission.ACCESS_FINE_LOCATION)
+    val context = LocalContext.current
+    val fineLocationPermissionState = rememberPermissionState(permission = Manifest.permission.ACCESS_FINE_LOCATION)
+    var showAddLocationDialog by remember { mutableStateOf(false) }
+    var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
+    var locationList by remember { mutableStateOf(listOf<Location>()) }
 
-        LaunchedEffect(key1 = Unit) {
-            fineLocationPermissionState.launchPermissionRequest()
+    LaunchedEffect(key1 = Unit) {
+        fineLocationPermissionState.launchPermissionRequest()
+    }
+
+    if (fineLocationPermissionState.status.isGranted) {
+        LaunchedEffect(Unit) {
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    location?.let {
+                        userLocation = LatLng(it.latitude, it.longitude)
+                    }
+                }
+            } catch (e: SecurityException) {
+                errorMessage = "An error occurred while getting location: ${e.message}"
+            }
         }
+    }
 
+    Column {
+        TopScreen(onAddClick = { showAddLocationDialog = true })
         if (fineLocationPermissionState.status.isGranted) {
-            MapScreen()
+            MapScreen(userLocation = userLocation, onLocationSelected = { latLng ->
+                selectedLocation = latLng
+            })
         } else {
             Text(
                 "Location permission is required to use this feature.",
@@ -289,9 +289,74 @@ fun HomeScreen() {
                 color = colorResource(id = R.color.red)
             )
         }
-        BottomScreen()
+        BottomScreen(locationList = locationList)
+    }
+
+    if (showAddLocationDialog) {
+        AddLocationDialog(
+            onDismiss = { showAddLocationDialog = false },
+            onAddLocation = { locationName ->
+                selectedLocation?.let { location ->
+                    locationList = locationList + Location(locationName)
+                }
+                showAddLocationDialog = false
+            }
+        )
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddLocationDialog(
+    onDismiss: () -> Unit,
+    onAddLocation: (String) -> Unit
+) {
+    var locationName by remember { mutableStateOf("") }
+    val maxLength = 15
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Add Location") },
+        text = {
+            Column {
+                TextField(
+                    value = locationName,
+                    onValueChange = {
+                        if (it.length <= maxLength) {
+                            locationName = it
+                        }
+                    },
+                    label = { Text("Location Name") },
+                    isError = locationName.length > maxLength
+                )
+                if (locationName.length > maxLength) {
+                    Text(
+                        text = "Maximum length is $maxLength characters",
+                        color = Color.Red,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (locationName.isNotEmpty() && locationName.length <= maxLength) {
+                        onAddLocation(locationName)
+                    }
+                }
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
 // to create an Outlined Text Field
 // Calling this function as content
 // in the above function
@@ -305,8 +370,7 @@ fun DropdownMenuBox() {
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp)
+            .width(160.dp)
     ) {
         ExposedDropdownMenuBox(
             expanded = expanded,
